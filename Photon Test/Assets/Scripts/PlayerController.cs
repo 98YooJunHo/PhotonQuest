@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Photon.Pun;
+using Unity.VisualScripting;
 
 public class PlayerController : MonoBehaviourPun
 {
@@ -11,27 +12,38 @@ public class PlayerController : MonoBehaviourPun
     public float xMoveSpeed = 0;
     public int jumpCount = 1;
 
+    private Vector3 playerxzPos;
+    private Vector3 rayPos;
     private RaycastHit hit;
     private PlayerInput playerInput;
     private Animator playerAni;
     private Rigidbody playerRigidbody;
     private GameObject mainCam;
+    private CapsuleCollider playerCollider;
     // Start is called before the first frame update
     void Start()
     {
         playerInput = GetComponent<PlayerInput>();
         playerAni = GetComponent<Animator>();
         playerRigidbody = GetComponent<Rigidbody>();
+        playerCollider = GetComponent<CapsuleCollider>();
         mainCam = GameObject.FindGameObjectWithTag("MainCamera");
+        rayPos = new Vector3(0, 4f, 0) + mainCam.transform.forward.normalized * 0.2f;
     }
 
     private void FixedUpdate()
     {
-        Physics.Raycast(transform.position, transform.forward, out hit);
+        if (!photonView.IsMine)
+        {
+            return;
+        }
+
+        playerxzPos = new Vector3(transform.position.x, 0, transform.position.z);
+        Physics.Raycast(rayPos + playerxzPos, mainCam.transform.forward.normalized, out hit);
         Debug.Log(hit.collider.tag);
         if (hit.collider != null)
         {
-            Debug.DrawRay(transform.position, transform.forward * hit.distance, Color.yellow);
+            Debug.DrawRay(rayPos + playerxzPos, mainCam.transform.forward.normalized * hit.distance, Color.yellow);
         }
     }
     // Update is called once per frame
@@ -50,7 +62,7 @@ public class PlayerController : MonoBehaviourPun
 
         if (playerAni.GetCurrentAnimatorStateInfo(0).IsName("Jump"))
         {
-            if(playerAni.GetCurrentAnimatorStateInfo(0).normalizedTime >= 0.92f)
+            if (playerAni.GetCurrentAnimatorStateInfo(0).normalizedTime >= 0.92f)
             {
                 CheckJumpEnd();
             }
@@ -72,6 +84,22 @@ public class PlayerController : MonoBehaviourPun
             if (jumpCount > 0)
             {
                 Jump();
+            }
+        }
+
+        if (Input.GetMouseButtonDown(0))
+        {
+            if (hit.collider != null)
+            {
+                Change();
+            }
+        }
+
+        if (Input.GetMouseButtonDown(1))
+        {
+            if(playerCollider.enabled == false)
+            {
+                Return();
             }
         }
     }
@@ -105,7 +133,7 @@ public class PlayerController : MonoBehaviourPun
 
     private void CheckJumpEnd()
     {
-        if(playerRigidbody.velocity.y < 0 && !playerAni.GetBool("IsGround"))
+        if (playerRigidbody.velocity.y < 0 && !playerAni.GetBool("IsGround"))
         {
             playerAni.SetBool("IsJump", false);
         }
@@ -214,75 +242,108 @@ public class PlayerController : MonoBehaviourPun
     {
         jumpCount -= 1;
         playerRigidbody.AddForce(new Vector3(0, JUMP_FORCE, 0));
-        playerAni.SetBool("IsGround", false);
         playerAni.SetBool("IsJump", true);
     }
 
     private void Change()
     {
-        if(hit.collider.CompareTag("Changable"))
+        photonView.RPC("ChangeOnServer", RpcTarget.MasterClient, hit.collider.gameObject, playerCollider, playerAni, gameObject);
+    }
+
+
+    private void Return()
+    { 
+        photonView.RPC("ReturnOnServer", RpcTarget.MasterClient, gameObject, playerCollider, playerAni);
+    }
+
+    [PunRPC]
+    private void ChangeOnServer(GameObject tempObject, CapsuleCollider playerCollider, Animator playerAni, GameObject playerGameObject)
+    {
+        if (hit.collider.CompareTag("Changable"))
         {
-            for(int i = 0; i < transform.childCount; i++)
+            GameObject child = new GameObject();
+            for (int i = 0; i < playerGameObject.transform.childCount; i++)
             {
-                if(transform.GetChild(i).gameObject.CompareTag("Changable"))
+                if (playerGameObject.transform.GetChild(i).gameObject.CompareTag("Changable"))
                 {
-                    Destroy(transform.GetChild(i));
+                    playerCollider.enabled = true;
+                    child = playerGameObject.transform.GetChild(i).gameObject;
                 }
             }
 
-            GameObject tempObject = hit.collider.gameObject;
-            Instantiate(tempObject, transform.position, transform.rotation).transform.parent = transform;
+            Instantiate(tempObject, playerGameObject.transform.position, playerGameObject.transform.rotation).transform.parent = playerGameObject.transform;
+            Destroy(child);
 
             playerAni.enabled = false;
-            playerRigidbody.constraints = RigidbodyConstraints.None;
+            //playerRigidbody.constraints = RigidbodyConstraints.None;
 
             for (int i = 0; i < transform.childCount - 1; i++)
             {
-                if (transform.GetChild(i).gameObject.activeSelf == true)
+                if (playerGameObject.transform.GetChild(i).gameObject.activeSelf == true)
                 {
-                    transform.GetChild(i).gameObject.SetActive(false);
+                    playerGameObject.transform.GetChild(i).gameObject.SetActive(false);
                 }
+            }
+            playerCollider.enabled = false;
+            if (PhotonNetwork.IsMasterClient)
+            {
+                photonView.RPC("ChangeOnServer", RpcTarget.Others, tempObject, playerCollider, playerAni, playerGameObject);
             }
         }
     }
 
-    private void Return()
+    [PunRPC]
+    private void ReturnOnServer(GameObject playerGameObject, CapsuleCollider playerCollider, Animator playerAni)
     {
-        for (int i = 0; i < transform.childCount; i++)
+        for (int i = 0; i < playerGameObject.transform.childCount; i++)
         {
-            if (transform.GetChild(i).gameObject.CompareTag("Changable"))
+            if (playerGameObject.transform.GetChild(i).gameObject.CompareTag("Changable"))
             {
-                Destroy(transform.GetChild(i));
+                playerCollider.enabled = true;
+                GameObject child = playerGameObject.transform.GetChild(i).gameObject;
+                Destroy(child);
             }
         }
 
-        for (int i = 0; i < transform.childCount; i++)
+        for (int i = 0; i < playerGameObject.transform.childCount; i++)
         {
-            if (transform.GetChild(i).gameObject.activeSelf == false)
+            if (playerGameObject.transform.GetChild(i).gameObject.activeSelf == false)
             {
-                transform.GetChild(i).gameObject.SetActive(true);
+                playerGameObject.transform.GetChild(i).gameObject.SetActive(true);
             }
         }
 
         playerAni.enabled = true;
-        playerRigidbody.constraints = RigidbodyConstraints.FreezeRotationX;
-        playerRigidbody.constraints = RigidbodyConstraints.FreezeRotationZ;
+        if (PhotonNetwork.IsMasterClient)
+        {
+            photonView.RPC("ReturnOnServer", RpcTarget.Others, playerGameObject, playerCollider, playerAni);
+        }
+        //playerRigidbody.constraints = RigidbodyConstraints.FreezeRotationX;
+        //playerRigidbody.constraints = RigidbodyConstraints.FreezeRotationZ;
+    }
+
+    private void OnCollisionStay(Collision collision)
+    {
+        if (collision.collider.CompareTag("Ground"))
+        {
+            playerAni.SetBool("IsGround", true);
+            playerAni.SetBool("IsJump", false);
+        }
     }
 
     private void OnCollisionEnter(Collision collision)
     {
-        if(collision.collider.CompareTag("Ground"))
+        if (collision.collider.CompareTag("Ground"))
         {
-            playerAni.SetBool("IsGround", true);
             jumpCount = 1;
         }
     }
 
-    //private void OnCollisionExit(Collision collision)
-    //{
-    //    if (collision.collider.CompareTag("Ground"))
-    //    {
-    //        playerAni.SetBool("IsGround", false);
-    //    }
-    //}
+    private void OnCollisionExit(Collision collision)
+    {
+        if (collision.collider.CompareTag("Ground"))
+        {
+            playerAni.SetBool("IsGround", false);
+        }
+    }
 }

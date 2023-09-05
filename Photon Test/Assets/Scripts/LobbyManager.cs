@@ -23,7 +23,7 @@ public class LobbyManager : MonoBehaviourPunCallbacks
     // Update is called once per frame
     void Update()
     {
-        
+
     }
 
     public override void OnConnectedToMaster()
@@ -42,7 +42,7 @@ public class LobbyManager : MonoBehaviourPunCallbacks
     {
         joinButton.interactable = false;
 
-        if(PhotonNetwork.IsConnected)
+        if (PhotonNetwork.IsConnected)
         {
             loadingText.text = "Try to Connect Room...";
 

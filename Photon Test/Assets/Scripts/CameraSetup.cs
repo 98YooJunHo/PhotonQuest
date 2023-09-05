@@ -29,8 +29,9 @@ public class CameraSetup : MonoBehaviourPun
         }
         xMove += Input.GetAxis("Mouse X");
         playerCam.transform.rotation = Quaternion.Euler(0, xMove * sensitivity, 0);
-        Vector3 reverseDistance = new Vector3 (0, yDistance, zDistance);
+        Vector3 reverseDistance = new Vector3(0, yDistance, zDistance);
 
         playerCam.transform.position = transform.position - playerCam.transform.rotation * reverseDistance;
+        playerCam.transform.LookAt(transform);
     }
 }
